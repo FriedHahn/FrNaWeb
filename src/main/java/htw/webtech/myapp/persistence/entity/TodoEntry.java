@@ -1,4 +1,4 @@
-package htw.webtech.myapp;
+package htw.webtech.myapp.persistence.entity;
 
 import java.time.LocalDateTime;
 

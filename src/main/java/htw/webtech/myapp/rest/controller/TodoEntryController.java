@@ -1,5 +1,6 @@
-package htw.webtech.myapp;
+package htw.webtech.myapp.rest.controller;
 
+import htw.webtech.myapp.persistence.entity.TodoEntry;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
