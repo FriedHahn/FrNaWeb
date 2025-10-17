@@ -1,6 +1,6 @@
 # FrNaWeb
-# Friedrich Hahn 594124
-# Nam Le
+Friedrich Hahn 594124
+Nam Le
 
 
 # Thema
