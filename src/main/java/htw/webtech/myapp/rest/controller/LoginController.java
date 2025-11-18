@@ -8,7 +8,9 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api")
-@CrossOrigin(origins = "http://localhost:5173") // erlaubt dein Vue Frontend
+@CrossOrigin(origins = {"http://localhost:5173",
+                       "https://frnawebfront2.onrender.com"
+})
 public class LoginController {
 
     private final AuthService authService;
