@@ -1,21 +1,17 @@
-# IntelliJ
-.idea/
-*.iml
-
 # Gradle
-build/
-out/
 .gradle/
+build/
+bin/
 !gradle/wrapper/gradle-wrapper.jar
-
-# OS
-.DS_Store
 
 # Java
 *.class
 *.jar
 *.war
-*.ear
+
+# IntelliJ / IDE
+.idea/
+*.iml
 
 # Logs
 *.log
