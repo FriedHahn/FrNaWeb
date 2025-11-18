@@ -6,6 +6,16 @@
 build/
 out/
 .gradle/
+!gradle/wrapper/gradle-wrapper.jar
 
 # OS
 .DS_Store
+
+# Java
+*.class
+*.jar
+*.war
+*.ear
+
+# Logs
+*.log
