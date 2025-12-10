@@ -26,7 +26,7 @@ public class LoginController {
             return ResponseEntity.ok(new LoginResponse(true, token, "ok"));
         } else {
             return ResponseEntity.status(401)
-                    .body(new LoginResponse(false, null, "invalid credentials"));
+                    .body(new LoginResponse(false, null, "Ungültige Zugangsdaten"));
         }
     }
 }
