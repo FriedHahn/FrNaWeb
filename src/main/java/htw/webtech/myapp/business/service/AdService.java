@@ -109,7 +109,19 @@ public class AdService {
         String price = request.getPrice() == null ? "" : request.getPrice().trim();
 
         if (brand.isEmpty()) throw new IllegalArgumentException("INVALID");
-        if (!size.matches("^\\d+$")) throw new IllegalArgumentException("INVALID");
+
+        if (!size.matches("^\\d+(\\.5)?$")) throw new IllegalArgumentException("INVALID");
+
+        double s;
+        try {
+            s = Double.parseDouble(size);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("INVALID");
+        }
+
+        if (s < 20 || s > 55) throw new IllegalArgumentException("INVALID");
+
         if (!price.matches("^\\d+(\\.\\d{1,2})?$")) throw new IllegalArgumentException("INVALID");
     }
+
 }
