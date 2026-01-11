@@ -9,8 +9,8 @@ public class PasswordHasher {
 
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final int ITERATIONS = 120_000;
-    private static final int KEY_LENGTH = 256; // bits
-    private static final int SALT_LENGTH = 16; // bytes
+    private static final int KEY_LENGTH = 256;
+    private static final int SALT_LENGTH = 16;
 
     public static String hash(String password) {
         if (password == null) throw new IllegalArgumentException("password is null");

@@ -15,7 +15,6 @@ public class UserEntry {
     @Column(nullable = false)
     private String email;
 
-    // Speichert "salt:hash" (Base64)
     @Column(nullable = false, length = 512)
     private String passwordHash;
 

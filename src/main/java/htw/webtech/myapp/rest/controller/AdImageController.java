@@ -61,7 +61,6 @@ public class AdImageController {
                 return ResponseEntity.badRequest().body("Nur jpg, jpeg, png, webp erlaubt");
             }
 
-            // altes Bild loeschen, falls vorhanden
             if (ad.getImagePath() != null && !ad.getImagePath().isBlank()) {
                 Path oldPath = Paths.get("uploads", ad.getImagePath().replaceFirst("^/uploads/", ""));
                 Files.deleteIfExists(oldPath);
