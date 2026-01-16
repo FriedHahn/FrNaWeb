@@ -25,7 +25,9 @@ public class AdService {
     }
 
     public AdEntry createAd(AdRequest request, String ownerEmail) {
+        normalizePrice(request);
         validateRequest(request);
+
         if (ownerEmail == null || ownerEmail.isBlank()) throw new IllegalArgumentException("UNAUTHORIZED");
 
         AdEntry ad = new AdEntry(
@@ -38,7 +40,9 @@ public class AdService {
     }
 
     public AdEntry updateAd(Long id, AdRequest request, String ownerEmail) {
+        normalizePrice(request);
         validateRequest(request);
+
         if (ownerEmail == null || ownerEmail.isBlank()) throw new IllegalArgumentException("UNAUTHORIZED");
 
         AdEntry existing = adEntryRepository.findById(id)
@@ -124,4 +128,15 @@ public class AdService {
         if (!price.matches("^\\d+(\\.\\d{1,2})?$")) throw new IllegalArgumentException("INVALID");
     }
 
+    private void normalizePrice(AdRequest request) {
+        if (request == null || request.getPrice() == null) return;
+
+        String raw = request.getPrice().trim();
+        if (raw.isEmpty()) return;
+
+        // Komma als Dezimaltrenner zulassen
+        raw = raw.replace(',', '.');
+
+        request.setPrice(raw);
+    }
 }

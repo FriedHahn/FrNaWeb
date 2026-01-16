@@ -1,224 +1,524 @@
 package htw.webtech.myapp;
 
-import org.springframework.test.context.ActiveProfiles;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import htw.webtech.myapp.persistence.repository.AdEntryRepository;
+import htw.webtech.myapp.persistence.repository.NotificationEntryRepository;
+import htw.webtech.myapp.persistence.repository.UserEntryRepository;
+import htw.webtech.myapp.rest.model.AdRequest;
+import htw.webtech.myapp.rest.model.LoginRequest;
+import htw.webtech.myapp.rest.model.PurchaseRequest;
+import htw.webtech.myapp.rest.model.RegisterRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
-import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.io.IOException;
+import java.nio.file.*;
+import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 
 import static org.hamcrest.Matchers.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-/**
- * Integrationstests für dein Backend über MockMvc.
- * Diese Tests decken die wichtigsten Endpunkte ab (5 bis 10 Tests total).
- *
- * Voraussetzungen:
- * - spring-boot-starter-test ist im Projekt
- * - Test DB (typisch H2) ist verfügbar
- */
-@ActiveProfiles("test")
-@SpringBootTest
+@SpringBootTest(
+        properties = {
+                "spring.datasource.url=jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1",
+                "spring.datasource.driver-class-name=org.h2.Driver",
+                "spring.datasource.username=sa",
+                "spring.datasource.password=",
+                "spring.jpa.hibernate.ddl-auto=create-drop",
+                "spring.jpa.database-platform=org.hibernate.dialect.H2Dialect",
+                "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.H2Dialect",
+                "spring.jpa.properties.hibernate.hbm2ddl.auto=create-drop"
+        }
+)
 @AutoConfigureMockMvc
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class BackendIntegrationTest {
 
-    @Autowired MockMvc mvc;
-    @Autowired ObjectMapper om;
+    @Autowired private MockMvc mockMvc;
+    @Autowired private ObjectMapper objectMapper;
+
+    @Autowired private AdEntryRepository adRepo;
+    @Autowired private NotificationEntryRepository notificationRepo;
+    @Autowired private UserEntryRepository userRepo;
 
     @BeforeEach
-    void setup() {
+    void resetDbAndUploads() throws Exception {
+        notificationRepo.deleteAll();
+        adRepo.deleteAll();
+        userRepo.deleteAll();
+
+        deleteDirectoryQuietly(Paths.get("uploads"));
     }
 
-    private String json(Object o) throws Exception {
-        return om.writeValueAsString(o);
+    private static void deleteDirectoryQuietly(Path dir) throws IOException {
+        if (!Files.exists(dir)) return;
+        Files.walk(dir)
+                .sorted(Comparator.reverseOrder())
+                .forEach(p -> {
+                    try { Files.deleteIfExists(p); } catch (IOException ignored) {}
+                });
     }
 
-    private String registerAndGetToken(String email, String password) throws Exception {
-        String body = mvc.perform(post("/api/register")
+    private static String uniqueEmail(String prefix) {
+        return prefix + "_" + System.nanoTime() + "@test.de";
+    }
+
+    private String register(String email, String password) throws Exception {
+        RegisterRequest reg = new RegisterRequest();
+        reg.setEmail(email);
+        reg.setPassword(password);
+
+        String body = mockMvc.perform(post("/api/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("email", email, "password", password))))
+                        .content(objectMapper.writeValueAsString(reg)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.token", not(isEmptyOrNullString())))
-                .andReturn()
-                .getResponse()
-                .getContentAsString();
+                .andExpect(jsonPath("$.token").isNotEmpty())
+                .andReturn().getResponse().getContentAsString();
 
-        JsonNode node = om.readTree(body);
-        return node.get("token").asText();
+        return objectMapper.readTree(body).get("token").asText();
     }
 
-    private String loginAndGetToken(String email, String password) throws Exception {
-        String body = mvc.perform(post("/api/login")
+    private String login(String email, String password) throws Exception {
+        LoginRequest req = new LoginRequest();
+        req.setEmail(email);
+        req.setPassword(password);
+
+        String body = mockMvc.perform(post("/api/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("email", email, "password", password))))
+                        .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.token", not(isEmptyOrNullString())))
-                .andReturn()
-                .getResponse()
-                .getContentAsString();
+                .andExpect(jsonPath("$.token").isNotEmpty())
+                .andReturn().getResponse().getContentAsString();
 
-        JsonNode node = om.readTree(body);
-        return node.get("token").asText();
+        return objectMapper.readTree(body).get("token").asText();
     }
 
-    private String auth(String token) {
-        return "Bearer " + token;
+    private String registerAndLogin(String email, String password) throws Exception {
+        register(email, password);
+        return login(email, password);
     }
 
     private long createAd(String token, String brand, String size, String price) throws Exception {
-        String body = mvc.perform(post("/api/ads")
-                        .header("Authorization", auth(token))
+        AdRequest req = new AdRequest();
+        req.setBrand(brand);
+        req.setSize(size);
+        req.setPrice(price);
+
+        String expectedPrice = price.replace(',', '.');
+
+        String body = mockMvc.perform(post("/api/ads")
+                        .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("brand", brand, "size", size, "price", price))))
+                        .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id", notNullValue()))
+                .andExpect(jsonPath("$.id").isNumber())
                 .andExpect(jsonPath("$.brand").value(brand))
                 .andExpect(jsonPath("$.size").value(size))
-                .andExpect(jsonPath("$.price").value(price))
-                .andReturn()
-                .getResponse()
-                .getContentAsString();
+                .andExpect(jsonPath("$.price").value(expectedPrice))
+                .andReturn().getResponse().getContentAsString();
 
-        return om.readTree(body).get("id").asLong();
+        return objectMapper.readTree(body).get("id").asLong();
     }
 
+
     @Test
-    void register_returnsSuccessAndToken() throws Exception {
-        mvc.perform(post("/api/register")
+    void registerThenLoginOk() throws Exception {
+        String email = uniqueEmail("u");
+        register(email, "1234");
+
+        mockMvc.perform(post("/api/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("email", "a@test.de", "password", "1234"))))
+                        .content(objectMapper.writeValueAsString(new LoginRequest() {{
+                            setEmail(email);
+                            setPassword("1234");
+                        }})))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.token", not(isEmptyOrNullString())))
-                .andExpect(jsonPath("$.message", notNullValue()));
+                .andExpect(jsonPath("$.token").isNotEmpty());
     }
 
     @Test
-    void login_wrongPassword_returns401() throws Exception {
-        registerAndGetToken("b@test.de", "1234");
+    void registerDuplicateFails() throws Exception {
+        String email = uniqueEmail("dup");
 
-        mvc.perform(post("/api/login")
+        RegisterRequest r = new RegisterRequest();
+        r.setEmail(email);
+        r.setPassword("1234");
+
+        mockMvc.perform(post("/api/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("email", "b@test.de", "password", "wrong"))))
+                        .content(objectMapper.writeValueAsString(r)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(r)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
+    void loginWrongPasswordFails() throws Exception {
+        String email = uniqueEmail("wp");
+        registerAndLogin(email, "1234");
+
+        LoginRequest bad = new LoginRequest();
+        bad.setEmail(email);
+        bad.setPassword("xxxx");
+
+        mockMvc.perform(post("/api/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(bad)))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.token").doesNotExist())
-                .andExpect(jsonPath("$.message", not(isEmptyOrNullString())));
+                .andExpect(jsonPath("$.success").value(false));
     }
 
-    @Test
-    void getAds_returnsOnlyUnsoldAds() throws Exception {
-        String sellerToken = registerAndGetToken("seller@test.de", "1234");
-        long adId = createAd(sellerToken, "Nike", "42", "99.99");
 
-        mvc.perform(get("/api/ads"))
+    @Test
+    void getAdsEmpty() throws Exception {
+        mockMvc.perform(get("/api/ads"))
                 .andExpect(status().isOk())
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$", isA(List.class)))
-                .andExpect(jsonPath("$[0].id").value(adId))
-                .andExpect(jsonPath("$[0].sold").value(false));
+                .andExpect(jsonPath("$", hasSize(0)));
     }
 
     @Test
-    void createAd_withoutAuth_returns401() throws Exception {
-        mvc.perform(post("/api/ads")
+    void createAdUnauthorized() throws Exception {
+        AdRequest req = new AdRequest();
+        req.setBrand("Nike");
+        req.setSize("42");
+        req.setPrice("50");
+
+        mockMvc.perform(post("/api/ads")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("brand", "Adidas", "size", "43", "price", "120"))))
+                        .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isUnauthorized());
     }
 
     @Test
-    void createAd_withAuth_createsAndIsVisibleInList() throws Exception {
-        String token = registerAndGetToken("c@test.de", "1234");
-        long adId = createAd(token, "Puma", "42.5", "89.50");
+    void createAdValidationFails() throws Exception {
+        String token = registerAndLogin(uniqueEmail("c"), "1234");
 
-        mvc.perform(get("/api/ads"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$[*].id", hasItem((int) adId)))
-                .andExpect(jsonPath("$[?(@.id==" + adId + ")].brand").value(hasItem("Puma")));
+        AdRequest bad = new AdRequest();
+        bad.setBrand("");
+        bad.setSize("5");
+        bad.setPrice("10");
+
+        mockMvc.perform(post("/api/ads")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(bad)))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
-    void updateAd_byNonOwner_returns403() throws Exception {
-        String ownerToken = registerAndGetToken("owner@test.de", "1234");
-        String otherToken = registerAndGetToken("other@test.de", "1234");
+    void createAndListAdsOk() throws Exception {
+        String token = registerAndLogin(uniqueEmail("seller"), "1234");
+        createAd(token, "Nike", "42", "50");
 
-        long adId = createAd(ownerToken, "Nike", "42", "99.99");
+        mockMvc.perform(get("/api/ads"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].brand").value("Nike"))
+                .andExpect(jsonPath("$[0].sold").value(false));
+    }
 
-        mvc.perform(put("/api/ads/{id}", adId)
-                        .header("Authorization", auth(otherToken))
+    @Test
+    void updateNotFound() throws Exception {
+        String token = registerAndLogin(uniqueEmail("d"), "1234");
+
+        AdRequest req = new AdRequest();
+        req.setBrand("Nike");
+        req.setSize("42");
+        req.setPrice("50");
+
+        mockMvc.perform(put("/api/ads/999999")
+                        .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("brand", "Nike", "size", "42", "price", "79.99"))))
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void updateOwnAdOk() throws Exception {
+        String token = registerAndLogin(uniqueEmail("own"), "1234");
+        long id = createAd(token, "Nike", "42", "50");
+
+        AdRequest edit = new AdRequest();
+        edit.setBrand("Adidas");
+        edit.setSize("43");
+        edit.setPrice("60");
+
+        mockMvc.perform(put("/api/ads/" + id)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(edit)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value((int) id))
+                .andExpect(jsonPath("$.brand").value("Adidas"))
+                .andExpect(jsonPath("$.size").value("43"))
+                .andExpect(jsonPath("$.price").value("60"));
+    }
+
+    @Test
+    void editForeignAdForbidden() throws Exception {
+        String a = registerAndLogin(uniqueEmail("a1"), "1234");
+        String b = registerAndLogin(uniqueEmail("b1"), "1234");
+
+        long id = createAd(a, "Nike", "42", "50");
+
+        AdRequest edit = new AdRequest();
+        edit.setBrand("Adidas");
+        edit.setSize("43");
+        edit.setPrice("60");
+
+        mockMvc.perform(put("/api/ads/" + id)
+                        .header("Authorization", "Bearer " + b)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(edit)))
                 .andExpect(status().isForbidden());
     }
 
     @Test
-    void purchase_createsNotificationForSeller_andAdBecomesSold() throws Exception {
-        String sellerToken = registerAndGetToken("sell@test.de", "1234");
-        String buyerToken = registerAndGetToken("buy@test.de", "1234");
+    void deleteOwnAdNoContent() throws Exception {
+        String token = registerAndLogin(uniqueEmail("del"), "1234");
+        long id = createAd(token, "Puma", "41", "20");
 
-        long adId = createAd(sellerToken, "New Balance", "44", "110");
+        mockMvc.perform(delete("/api/ads/" + id)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
 
-        mvc.perform(post("/api/purchases/checkout")
-                        .header("Authorization", auth(buyerToken))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("adIds", List.of(adId)))))
-                .andExpect(status().isOk());
-
-        mvc.perform(get("/api/ads"))
+        mockMvc.perform(get("/api/ads"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[*].id", not(hasItem((int) adId))));
-
-        mvc.perform(get("/api/notifications")
-                        .header("Authorization", auth(sellerToken)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(greaterThanOrEqualTo(1))))
-                .andExpect(jsonPath("$[0].message", containsString("verkauft")));
+                .andExpect(jsonPath("$", hasSize(0)));
     }
 
     @Test
-    void notification_markRead_removesFromUnreadList() throws Exception {
-        String sellerToken = registerAndGetToken("sell2@test.de", "1234");
-        String buyerToken = registerAndGetToken("buy2@test.de", "1234");
+    void deleteForeignAdForbidden() throws Exception {
+        String owner = registerAndLogin(uniqueEmail("own2"), "1234");
+        String other = registerAndLogin(uniqueEmail("other2"), "1234");
 
-        long adId = createAd(sellerToken, "Asics", "43", "95");
+        long id = createAd(owner, "Puma", "41", "20");
 
-        mvc.perform(post("/api/purchases/checkout")
-                        .header("Authorization", auth(buyerToken))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("adIds", List.of(adId)))))
-                .andExpect(status().isOk());
+        mockMvc.perform(delete("/api/ads/" + id)
+                        .header("Authorization", "Bearer " + other))
+                .andExpect(status().isForbidden());
+    }
 
-        String unreadBody = mvc.perform(get("/api/notifications")
-                        .header("Authorization", auth(sellerToken)))
+
+    @Test
+    void imageUploadAndDelete() throws Exception {
+        String token = registerAndLogin(uniqueEmail("img"), "1234");
+        long id = createAd(token, "Boot", "41", "20");
+
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "a.jpg", "image/jpeg", "x".getBytes()
+        );
+
+        mockMvc.perform(multipart("/api/ads/" + id + "/image")
+                        .file(file)
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(greaterThanOrEqualTo(1))))
-                .andReturn()
-                .getResponse()
-                .getContentAsString();
+                .andExpect(jsonPath("$.imagePath", notNullValue()));
 
-        long notifId = om.readTree(unreadBody).get(0).get("id").asLong();
+        mockMvc.perform(delete("/api/ads/" + id + "/image")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.imagePath").doesNotExist());
+    }
 
-        mvc.perform(post("/api/notifications/{id}/read", notifId)
-                        .header("Authorization", auth(sellerToken)))
+    @Test
+    void imageUploadForeignAdForbidden() throws Exception {
+        String owner = registerAndLogin(uniqueEmail("imgown"), "1234");
+        String other = registerAndLogin(uniqueEmail("imgother"), "1234");
+        long id = createAd(owner, "Boot", "41", "20");
+
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "a.jpg", "image/jpeg", "x".getBytes()
+        );
+
+        mockMvc.perform(multipart("/api/ads/" + id + "/image")
+                        .file(file)
+                        .header("Authorization", "Bearer " + other))
+                .andExpect(status().isForbidden());
+    }
+
+
+    @Test
+    void purchaseEdgeCases() throws Exception {
+        String seller = registerAndLogin(uniqueEmail("s"), "1234");
+        String buyer = registerAndLogin(uniqueEmail("b"), "1234");
+
+        long id = createAd(seller, "Vans", "44", "70");
+
+        PurchaseRequest own = new PurchaseRequest();
+        own.setAdIds(List.of(id));
+
+        mockMvc.perform(post("/api/purchases/checkout")
+                        .header("Authorization", "Bearer " + seller)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(own)))
+                .andExpect(status().isForbidden());
+
+        PurchaseRequest empty = new PurchaseRequest();
+        empty.setAdIds(List.of());
+
+        mockMvc.perform(post("/api/purchases/checkout")
+                        .header("Authorization", "Bearer " + buyer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(empty)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void purchaseOkAndSecondPurchaseConflicts() throws Exception {
+        String seller = registerAndLogin(uniqueEmail("sell"), "1234");
+        String buyer1 = registerAndLogin(uniqueEmail("buy1"), "1234");
+        String buyer2 = registerAndLogin(uniqueEmail("buy2"), "1234");
+
+        long id = createAd(seller, "Nike", "42", "50");
+
+        PurchaseRequest p = new PurchaseRequest();
+        p.setAdIds(List.of(id));
+
+        mockMvc.perform(post("/api/purchases/checkout")
+                        .header("Authorization", "Bearer " + buyer1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(p)))
                 .andExpect(status().isOk());
 
-        mvc.perform(get("/api/notifications")
-                        .header("Authorization", auth(sellerToken)))
+        mockMvc.perform(post("/api/purchases/checkout")
+                        .header("Authorization", "Bearer " + buyer2)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(p)))
+                .andExpect(status().isConflict());
+    }
+
+
+    @Test
+    void notificationsEmpty() throws Exception {
+        String token = registerAndLogin(uniqueEmail("n"), "1234");
+
+        mockMvc.perform(get("/api/notifications")
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(0)));
+    }
+
+    @Test
+    void notificationsMarkRead() throws Exception {
+        String seller = registerAndLogin(uniqueEmail("n1"), "1234");
+        String buyer = registerAndLogin(uniqueEmail("n2"), "1234");
+
+        long id = createAd(seller, "Reebok", "40", "30");
+
+        PurchaseRequest p = new PurchaseRequest();
+        p.setAdIds(List.of(id));
+
+        mockMvc.perform(post("/api/purchases/checkout")
+                        .header("Authorization", "Bearer " + buyer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(p)))
+                .andExpect(status().isOk());
+
+        String list = mockMvc.perform(get("/api/notifications")
+                        .header("Authorization", "Bearer " + seller))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode arr = objectMapper.readTree(list);
+        long notifId = arr.get(0).get("id").asLong();
+
+        mockMvc.perform(post("/api/notifications/" + notifId + "/read")
+                        .header("Authorization", "Bearer " + seller))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/notifications")
+                        .header("Authorization", "Bearer " + seller))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(0)));
+    }
+
+    @Test
+    void notificationsMarkReadForbiddenForOtherUser() throws Exception {
+        String seller = registerAndLogin(uniqueEmail("nseller"), "1234");
+        String buyer = registerAndLogin(uniqueEmail("nbuyer"), "1234");
+        String attacker = registerAndLogin(uniqueEmail("natt"), "1234");
+
+        long id = createAd(seller, "Reebok", "40", "30");
+
+        PurchaseRequest p = new PurchaseRequest();
+        p.setAdIds(List.of(id));
+
+        mockMvc.perform(post("/api/purchases/checkout")
+                        .header("Authorization", "Bearer " + buyer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(p)))
+                .andExpect(status().isOk());
+
+        String list = mockMvc.perform(get("/api/notifications")
+                        .header("Authorization", "Bearer " + seller))
+                .andReturn().getResponse().getContentAsString();
+
+        long notifId = objectMapper.readTree(list).get(0).get("id").asLong();
+
+        mockMvc.perform(post("/api/notifications/" + notifId + "/read")
+                        .header("Authorization", "Bearer " + attacker))
+                .andExpect(status().isForbidden());
+    }
+
+
+    @Test
+    void profileEmpty() throws Exception {
+        String token = registerAndLogin(uniqueEmail("p"), "1234");
+
+        mockMvc.perform(get("/api/profile")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.soldCount").value(0))
+                .andExpect(jsonPath("$.boughtCount").value(0))
+                .andExpect(jsonPath("$.revenueTotal").value(0))
+                .andExpect(jsonPath("$.spentTotal").value(0));
+    }
+
+    @Test
+    void profileCalculatesRevenueAndSpent() throws Exception {
+        String sellerEmail = uniqueEmail("pseller");
+        String buyerEmail = uniqueEmail("pbuyer");
+
+        String sellerToken = registerAndLogin(sellerEmail, "1234");
+        String buyerToken = registerAndLogin(buyerEmail, "1234");
+
+        long id = createAd(sellerToken, "Nike", "42", "12.50");
+
+        PurchaseRequest p = new PurchaseRequest();
+        p.setAdIds(List.of(id));
+
+        mockMvc.perform(post("/api/purchases/checkout")
+                        .header("Authorization", "Bearer " + buyerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(p)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/profile")
+                        .header("Authorization", "Bearer " + sellerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.soldCount").value(1))
+                .andExpect(jsonPath("$.revenueTotal").value(12.50));
+
+        mockMvc.perform(get("/api/profile")
+                        .header("Authorization", "Bearer " + buyerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.boughtCount").value(1))
+                .andExpect(jsonPath("$.spentTotal").value(12.50));
     }
 }
