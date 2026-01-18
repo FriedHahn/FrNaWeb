@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import htw.webtech.myapp.persistence.repository.AdEntryRepository;
 import htw.webtech.myapp.persistence.repository.NotificationEntryRepository;
+import htw.webtech.myapp.persistence.repository.SessionTokenRepository;
 import htw.webtech.myapp.persistence.repository.UserEntryRepository;
 import htw.webtech.myapp.rest.model.AdRequest;
 import htw.webtech.myapp.rest.model.LoginRequest;
@@ -48,12 +49,14 @@ class BackendIntegrationTest {
     @Autowired private AdEntryRepository adRepo;
     @Autowired private NotificationEntryRepository notificationRepo;
     @Autowired private UserEntryRepository userRepo;
+    @Autowired private SessionTokenRepository sessionTokenRepo;
 
     @BeforeEach
     void resetDbAndUploads() throws Exception {
         notificationRepo.deleteAll();
         adRepo.deleteAll();
         userRepo.deleteAll();
+        sessionTokenRepo.deleteAll();
 
         deleteDirectoryQuietly(Paths.get("uploads"));
     }
@@ -130,7 +133,6 @@ class BackendIntegrationTest {
         return objectMapper.readTree(body).get("id").asLong();
     }
 
-
     @Test
     void registerThenLoginOk() throws Exception {
         String email = uniqueEmail("u");
@@ -182,7 +184,6 @@ class BackendIntegrationTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.success").value(false));
     }
-
 
     @Test
     void getAdsEmpty() throws Exception {
@@ -314,7 +315,6 @@ class BackendIntegrationTest {
                 .andExpect(status().isForbidden());
     }
 
-
     @Test
     void imageUploadAndDelete() throws Exception {
         String token = registerAndLogin(uniqueEmail("img"), "1234");
@@ -351,7 +351,6 @@ class BackendIntegrationTest {
                         .header("Authorization", "Bearer " + other))
                 .andExpect(status().isForbidden());
     }
-
 
     @Test
     void purchaseEdgeCases() throws Exception {
@@ -402,7 +401,6 @@ class BackendIntegrationTest {
                         .content(objectMapper.writeValueAsString(p)))
                 .andExpect(status().isConflict());
     }
-
 
     @Test
     void notificationsEmpty() throws Exception {
@@ -475,7 +473,6 @@ class BackendIntegrationTest {
                         .header("Authorization", "Bearer " + attacker))
                 .andExpect(status().isForbidden());
     }
-
 
     @Test
     void profileEmpty() throws Exception {
